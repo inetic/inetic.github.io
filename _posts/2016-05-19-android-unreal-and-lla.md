@@ -278,7 +278,7 @@ And finally the juicy part where we generate some audio data. As promised, these
       for (size_t i = 0; i < SampleCount; ++i)
       {
           float x = (float)(i + PlayCursor) / SampleRate;
-          float v = (float)(TotalSampleCount - i - PlayCursor) / (TotalSampleCount);
+          float v = (float)(TotalSampleCount - i - PlayCursor) / TotalSampleCount;
           data[i] = sin(Frequency * x * 2.f * PI) * v * MAX_int16;
       }
   
