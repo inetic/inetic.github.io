@@ -15,9 +15,9 @@ As the title suggests, we'll be looking at how to minimize the lag on Android wh
 
 There are different kinds of APIs one can use for audio programming, but Unreal uses [OpenSL ES](https://en.wikipedia.org/wiki/OpenSL_ES) for Android, which is also the only one supporting LLA. In short, the way this API works is that during an initialization, you pass it a C callback responsible for re-filling sound data to the system. After initialization, whenever you want to play something, you enqueue first few bytes of the sound data and wait for the system to ask you for more data through the C callback function.
 
-The above is the standard approach, and is also the one Unreal uses, but it has one drawback which is the *warm-up* latency. That is, when nothing is being played, the thread inside OpenSL responsible for playing sound goes to a dormant mode to preserve phone's memory. During this mode, it decreases the frequency of polling for new data and sleeps otherwise. To [avoid this warm-up latency](https://developer.android.com/ndk/guides/audio/output-latency.html#warmup-lat), we'll make Unreal engine constantly feed the OpenSL system new bytes, where these bytes shall be all zeros at times when there is silence.
+The above is the standard approach, and is also the one Unreal uses, but it has one drawback which is the *warm-up* latency. That is, when nothing is being played, the thread inside OpenSL responsible for playing sound goes to a dormant mode to preserve phone's battery. During this mode, it decreases the frequency of polling for new data and sleeps otherwise. To [avoid this warm-up latency](https://developer.android.com/ndk/guides/audio/output-latency.html#warmup-lat), we'll make Unreal engine constantly feed the OpenSL system new bytes, where these bytes shall be all zeros at times when there is silence.
 
-But even with the warm-up problem gone, there are more problem to address. The next one on the list is the size of the buffer we want to pass to OpenSL. The size of it is directly proportional to the period after which the OpenSL thread requests new data. If it's too big, we get high latency again, and if it's too small, we'll hear glithes. For example, in Unreal engine the size of the buffer is fixed to [8192 samples](https://github.com/EpicGames/UnrealEngine/blob/release/Engine/Source/Runtime/Engine/Public/AudioDecompress.h#L13) (the link only works if you were granted access to Unreal's sources). This size corresponds to ~186ms when played on 44100 sample rate, which is unacceptable for low latency audio.
+But even with the warm-up problem gone, there are more problems to be addressed. The next one on the list is the size of the buffer we want to pass to OpenSL. The size of it is directly proportional to the period after which the OpenSL thread requests new data. If it's too big, we get high latency again, and if it's too small, we'll hear glithes. For example, in Unreal engine the size of the buffer is fixed to [8192 samples](https://github.com/EpicGames/UnrealEngine/blob/release/Engine/Source/Runtime/Engine/Public/AudioDecompress.h#L13) (the link only works if you were granted access to Unreal's sources). This size corresponds to ~186ms when played on 44100 sample rate, which is unacceptable for low latency audio.
 
 The last requirement for low latency audio is the proper sample rate, as nicely explained in [this video](https://youtu.be/d3kfEeMZ65c?t=4) if we used a sample rate different to the one which is native for a given device, the sound data would take a "longer path" inside OpenSL before they are played, thus increasing the latency again.
 
@@ -129,7 +129,7 @@ Now we're mostly finished with changing the Unreal engine sources. There shall b
 
 When attempting to play sound, an Unreal engine user would normally utilize the [USoundWave](https://docs.unrealengine.com/latest/INT/API/Runtime/Engine/Sound/USoundWave/index.html) object. But that is the one that suffers from the *warm-up* problem. Instead, we'll exploit an object called [USoundWaveProcedural](https://docs.unrealengine.com/latest/INT/API/Runtime/Engine/Sound/USoundWaveProcedural/index.html), in particular, we're interested in it's ability to play indefinitely and in its variable [OnSoundWaveProceduralUnderflow](https://docs.unrealengine.com/latest/INT/API/Runtime/Engine/Sound/USoundWaveProcedural/OnSoundWaveProceduralUnderflow/index.html) which is basically another callback called every time the sound thread needs more data.
 
-For testing purposes, I created a small scene inside the Unreal engine editor, then I created an actor object and attached a *OnInputTouchBegin* event to it. Without further ado, here is the corresponding C++ header file:
+For testing purposes, I created a small scene inside the Unreal engine editor, then I created an actor object and attached an *OnInputTouchBegin* event to it. Without further ado, here is the corresponding C++ header file:
 
 ```cpp
   #pragma once
@@ -195,7 +195,7 @@ And the relevant parts from the implementation. First we need to declare the JNI
   int32 AndroidThunkCpp_GetAudioNativeSampleRate();
 ```
 
-The following code gets executed shortly after the application starts. Here we first utilize the JNI functions we created above, then we create and initialize the *USoundWaveProcedural* object for ethernal playback.
+The following code gets executed shortly after the application starts. Here we first utilize the JNI functions we created above, then we create and initialize the *USoundWaveProcedural* object for eternal playback.
 
 ```cpp
   // Called when the game starts or when spawned
@@ -244,7 +244,7 @@ This function get's called whenever the user touches our actor, note that the *O
   }
 ```
 
-And finally the juicy part where we generate some audio data. As promised, these data shall be all zeros if there is nothing to play, but when the user touches our actor we start feeding it a sine wave for one second.
+And finally the juicy part where we generate some audio data. As promised, these data shall be all zeros whenever there is nothing to play, but when the user touches our actor we start feeding it a sine wave for one the duration of one second.
 
 ```cpp
   void AProceduralSoundActor::FillAudio(USoundWaveProcedural* Wave,
@@ -331,7 +331,7 @@ Now here is the problem: Say that the user has not yet requested to play audible
           |        |             Our callback fills BackBuffer with audible data
           |        |                  ^
           |        |                  |
-     ---+-+--------+----------------+-+-------------------------+-> time
+     ---+-+--------+----------------+-+-------------------------+---------> time
         |                           |                           |
         |                           |                           V
         |                           |              Only here are audible data enqueued
