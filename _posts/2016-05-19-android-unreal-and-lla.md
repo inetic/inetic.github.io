@@ -3,6 +3,7 @@ layout: post
 title: Low latency audio
 subtitle: On Android using Unreal engine
 bigimg: #/img/math-pix.jpg
+comments: true
 ---
 
 # Introduction
@@ -187,15 +188,7 @@ For testing purposes, I created a small scene inside the Unreal engine editor, t
   };
 ```
 
-And the relevant parts from the implementation. First we need to declare the JNI function for getting the buffer size and sample rate constants:
-
-```cpp
-  bool AndroidThunkCpp_HasAudioLowLatencyFeature();
-  int32 AndroidThunkCpp_GetAudioOutputFramesPerBuffer();
-  int32 AndroidThunkCpp_GetAudioNativeSampleRate();
-```
-
-The following code gets executed shortly after the application starts. Here we first utilize the JNI functions we created above, then we create and initialize the *USoundWaveProcedural* object for eternal playback.
+And the relevant parts from the implementation.  The following code gets executed shortly after the application starts. Here, we first utilize the JNI functions we created above, then we create and initialize the *USoundWaveProcedural* object for eternal playback.
 
 ```cpp
   // Called when the game starts or when spawned
@@ -203,6 +196,7 @@ The following code gets executed shortly after the application starts. Here we f
   {
       StartPlaying.test_and_set();
   
+      // Making use of our JNI functions.
       bAndroidHasAudioLowLatencyFeature = AndroidThunkCpp_HasAudioLowLatencyFeature();
       OptimalFramesPerBuffer            = AndroidThunkCpp_GetAudioOutputFramesPerBuffer();
       SampleRate                        = AndroidThunkCpp_GetAudioNativeSampleRate();
