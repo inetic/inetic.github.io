@@ -8,7 +8,7 @@ comments: true
 
 # Introduction
 
-I've recently had some time and an opportunity to look inside some audio programming. To be honest, I never thought there was much to it, just open a file and read the data while also writing it to some sound output function. Well, yes and no, it turns out that if one is happy with just playing some music, things are that simple. But if one wants to minimize the delay between the event when user presses a button until the sound is played (commonly called lag), there is some trickery that needs to be done, and that is the content of this post.
+I've recently had some time and an opportunity to look inside some audio programming. To be honest, I never thought there was much to it, just open a file and read the data while also writing it to some sound output function. Well, yes and no, it turns out that if one is happy with just playing some music, things are that simple. But if one wants to minimize the delay between the event when user presses a button until the sound is played (called lag), there is some trickery that needs to be done, and that is the content of this post.
 
 As the title suggests, we'll be looking at how to minimize the lag on Android while using the [Unreal engine](https://www.unrealengine.com/what-is-unreal-engine-4). Unfortunately, the engine code doesn't support this out of the box, so we'll need to modify the engine's sources as well. The bright side is that the engine does come up with a lot of functionality that we'll use so our changes will be minimal.
 
