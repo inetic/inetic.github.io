@@ -18,7 +18,7 @@ There are different kinds of APIs one can use for audio programming, but Unreal 
 
 The above is the standard approach, and is also the one Unreal uses, but it has one drawback which is the *warm-up* latency. That is, when nothing is being played, the thread inside OpenSL responsible for playing sound goes to a dormant mode to preserve phone's battery. During this mode, it decreases the frequency of polling for new data and sleeps otherwise. To [avoid this warm-up latency](https://developer.android.com/ndk/guides/audio/output-latency.html#warmup-lat), we'll make Unreal engine constantly feed the OpenSL system new bytes, where these bytes shall be all zeros at times when there is silence.
 
-But even with the warm-up problem gone, there are more problems to be addressed. The next one on the list is the size of the buffer we want to pass to OpenSL. The size of it is directly proportional to the period after which the OpenSL thread requests new data. If it's too big, we get high latency again, and if it's too small, we'll hear glithes. For example, in Unreal engine the size of the buffer is fixed to [8192 samples](https://github.com/EpicGames/UnrealEngine/blob/release/Engine/Source/Runtime/Engine/Public/AudioDecompress.h#L13) (the link only works if you were granted access to Unreal's sources). This size corresponds to ~186ms when played on 44100 sample rate, which is unacceptable for low latency audio.
+But even with the warm-up problem gone, there are more problems to be addressed. The next one on the list is the size of the buffer we want to pass to OpenSL. The size of it is directly proportional to the period after which the OpenSL thread requests new data. If it's too big, we get high latency again, and if it's too small, we'll hear glitches. For example, in Unreal engine the size of the buffer is fixed to [8192 samples](https://github.com/EpicGames/UnrealEngine/blob/release/Engine/Source/Runtime/Engine/Public/AudioDecompress.h#L13) (the link only works if you were granted access to Unreal's sources). This size corresponds to ~186ms when played on 44100 sample rate, which is unacceptable for low latency audio.
 
 The last requirement for low latency audio is the proper sample rate, as nicely explained in [this video](https://youtu.be/d3kfEeMZ65c?t=4) if we used a sample rate different to the one which is native for a given device, the sound data would take a "longer path" inside OpenSL before they are played, thus increasing the latency again.
 
@@ -122,15 +122,15 @@ Since the above is a Java API and we'll be using those constants in C++ code, we
   }
 ```
 
-I've omited some declarations, they can be found in the final diff attached at the end of this post.
+I've omitted some declarations, they can be found in the final diff attached at the end of this post.
 
 # The eternal loop
 
 Now we're mostly finished with changing the Unreal engine sources. There shall be one more change that will save us few more milliseconds, I'll talk about that later because I think it is important to first know what we'll do in the user code.
 
-When attempting to play sound, an Unreal engine user would normally utilize the [USoundWave](https://docs.unrealengine.com/latest/INT/API/Runtime/Engine/Sound/USoundWave/index.html) object. But that is the one that suffers from the *warm-up* problem. Instead, we'll exploit an object called [USoundWaveProcedural](https://docs.unrealengine.com/latest/INT/API/Runtime/Engine/Sound/USoundWaveProcedural/index.html), in particular, we're interested in it's ability to play indefinitely and in its variable [OnSoundWaveProceduralUnderflow](https://docs.unrealengine.com/latest/INT/API/Runtime/Engine/Sound/USoundWaveProcedural/OnSoundWaveProceduralUnderflow/index.html) which is basically another callback called every time the sound thread needs more data.
+When attempting to play a sound, an Unreal engine user would normally utilize the [USoundWave](https://docs.unrealengine.com/latest/INT/API/Runtime/Engine/Sound/USoundWave/index.html) object. But that is the one that suffers from the *warm-up* problem. Instead, we'll exploit an object called [USoundWaveProcedural](https://docs.unrealengine.com/latest/INT/API/Runtime/Engine/Sound/USoundWaveProcedural/index.html), in particular, we're interested in it's ability to play indefinitely and in its variable [OnSoundWaveProceduralUnderflow](https://docs.unrealengine.com/latest/INT/API/Runtime/Engine/Sound/USoundWaveProcedural/OnSoundWaveProceduralUnderflow/index.html) which is basically another callback called every time the sound thread needs more data.
 
-For testing purposes, I created a small scene inside the Unreal engine editor, then I created an actor object and attached an *OnInputTouchBegin* event to it. Without further ado, here is the corresponding C++ header file:
+For testing purposes, I created a small scene inside the Unreal engine editor, then I created an actor object and attached an *OnInputTouchBegin* event to it. Here is the corresponding C++ header file:
 
 ```cpp
   #pragma once
@@ -188,7 +188,7 @@ For testing purposes, I created a small scene inside the Unreal engine editor, t
   };
 ```
 
-And the relevant parts from the implementation.  The following code gets executed shortly after the application starts. Here, we first utilize the JNI functions we created above, then we create and initialize the *USoundWaveProcedural* object for eternal playback.
+What follows are the relevant parts from the implementation. The following code gets executed shortly after the application starts. Here, we first utilize the JNI functions we created above, then we create and initialize the *USoundWaveProcedural* object for eternal playback.
 
 ```cpp
   // Called when the game starts or when spawned
@@ -227,7 +227,7 @@ And the relevant parts from the implementation.  The following code gets execute
   }
 ```
 
-This function get's called whenever the user touches our actor, note that the *OnSoundWaveProceduralUnderflow* callback from above get's called from a thread that runs inside OpenSL. Thus - to be safe - we shall interact with it only through this `StartPlaying` variable which is of type `std::atomic_flag`.
+This next function gets called whenever the user touches our actor, note that the *OnSoundWaveProceduralUnderflow* callback from above gets called from a thread that runs inside OpenSL. Thus - to be safe - we shall interact with it only through this *StartPlaying* variable which is of type *std::atomic_flag*.
 
 ```cpp
   void AProceduralSoundActor::NotifyActorOnInputTouchBegin(const ETouchIndex::Type)
@@ -315,7 +315,7 @@ The *PrepareDataInSeparateThread* function does one of two things depending on w
 
 In case of *UsoundWaveProcedural* it simply calls our *OnSoundWaveProceduralUnderflow* callback which we defined above.
 
-Now here is the problem: Say that the user has not yet requested to play audible sound (i.e. silence is being played). That means that last time `OnRequestBufferCallback` was called, the `Enqueue` command enqueued all zeros and the `PrepareDataInSeparateThread` command filled `BackBuffer` with zeros as well. Now imagine that the user requests to play audible audio, the next time the `OnRequestBufferCallback` is called, the `BackBuffer` is first enqueued. But `BackBuffer` most likely contains all zeros and only the next call to `PrepareDataInSeparateThread` shall fill the `BackBuffer` with audible data. Thus we've effectively lost one cycle.
+Now here is the problem: Say that the user has not yet requested to play audible sound (i.e. silence is being played). That means that last time *OnRequestBufferCallback* was called, the *Enqueue* command enqueued all zeros and the *PrepareDataInSeparateThread* command filled *BackBuffer* with zeros as well. Now imagine that the user requests to play audible audio, the next time the *OnRequestBufferCallback* is called, the *BackBuffer* is first enqueued. But *BackBuffer* most likely contains all zeros and only the next call to *PrepareDataInSeparateThread* shall fill the *BackBuffer* with audible data. Thus we've effectively lost one cycle.
 
 ```
       Our callback fills BackBuffer with silence
@@ -333,7 +333,7 @@ Now here is the problem: Say that the user has not yet requested to play audible
     Enqueue silence           Enqueue again (start of new cycle), BackBuffer contains zeros
 ```
 
-Instead, when `USoundWaveProcedural` is used, what we want is a diagram that looks something like this:
+Instead, when *USoundWaveProcedural* is used, what we want is a diagram that looks something like this:
 
 ```
                 User requests audible data
@@ -351,11 +351,14 @@ Instead, when `USoundWaveProcedural` is used, what we want is a diagram that loo
 
 The changes required for this behavior to apply can be found in the [UE.diffs](https://www.dropbox.com/sh/dtzgpztjkgwv6un/AAB_h0GYAKXF78MJebjUhLH0a/ue4.11/UE.diffs?dl=0) file (look for changes inside AndroidAudioSource.cpp).
 
+# Conclusion
+
+Using this approach, I was able to feed new data to the OpenSL system on my Nexus 5 every 5 milliseconds in the worst case. Which [is the minimum delay the phone is capable of](https://source.android.com/devices/audio/latency_measurements.html). There is a shortcoming to this approach though, it is that now resampling and mixing audio data will need to be done manually in the user code (previously it was done inside the OpenSL ES library).
+
 # Related links
 
 [OpenSL ES 1.0.1 specification (pdf)](https://www.khronos.org/registry/sles/specs/OpenSL_ES_Specification_1.0.1.pdf)
 [OpenSL ES for Android](http://mobilepearls.com/labs/native-android-api/ndk/docs/opensles/)
 [Low-latency audio playback on Android on StackOverflow](http://stackoverflow.com/questions/14842803/low-latency-audio-playback-on-android)
-[What latency to expect on different devices](https://source.android.com/devices/audio/latency_measurements.html)
 
-LLA on Android used to require use of at least two OpenSL buffers, [this is no longer the case](https://android.googlesource.com/platform/frameworks/wilhelm/+/92e53bc98cd938e9917fb02d3e5a9be88423791d%5E!/).
+Low latency audio on Android used to require use of at least two OpenSL buffers, [this is no longer the case](https://android.googlesource.com/platform/frameworks/wilhelm/+/92e53bc98cd938e9917fb02d3e5a9be88423791d%5E!/).
