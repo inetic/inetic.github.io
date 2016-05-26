@@ -238,7 +238,7 @@ This next function gets called whenever the user touches our actor, note that th
   }
 ```
 
-And finally the juicy part where we generate some audio data. As promised, these data shall be all zeros whenever there is nothing to play, but when the user touches our actor we start feeding it a sine wave for one the duration of one second.
+And finally the juicy part where we generate some audio data. As promised, these data shall be all zeros whenever there is nothing to play, but when the user touches our actor we start feeding it a sine wave for the duration of one second.
 
 ```cpp
   void AProceduralSoundActor::FillAudio(USoundWaveProcedural* Wave,
